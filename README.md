@@ -32,12 +32,13 @@ On Unraid, open a terminal on the server, clone this repo, run the two commands 
 
 ## What you get
 
-- Title, description, price and location (when Facebook exposes them), main image.
+- Title, description, price, location, category and the main image (plus extra photos as a gallery when Facebook exposes them).
 - **Media:** Discord allows one image per embed, but several embeds sharing the same URL render as a gallery. The bot shows up to **4 photos** this way; if the listing has more, the footer says how many were left out and the title links to the listing. Video and a true "all media" view are not possible in embeds.
 
 ## Limitations
 
-- Facebook has no public Marketplace API. The bot reads Open Graph tags (and embedded JSON when present) from the public page using a link-preview crawler user agent. Facebook may serve a login wall, rate-limit server IPs, or strip details at any time; price/location/extra photos are best-effort and the HTML structure can change.
+- Facebook has no public Marketplace API. The bot reads Open Graph tags from the public page using link-preview crawler user agents. Facebook may serve a login wall, rate-limit server IPs, or strip details at any time; extra photos are best-effort and the HTML structure can change.
+- Price: the normal `www` page does not contain the price without login. It only appears in the Open Graph description Facebook serves to non-Facebook crawlers on the `m.facebook.com` host (`<title> - $2200, in City, State. Browse similar <Category> ...`), so the bot fetches that page too and parses price, location and category from it. If Facebook changes that text, the embed still works but shows no price.
 - If no preview can be fetched (login wall, removed/private listing), the bot reacts with ⚠️ instead of replying.
 - Image URLs are signed CDN links and may eventually expire in old messages.
 - Results are cached in memory for 15 minutes.
