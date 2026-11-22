@@ -171,9 +171,13 @@ def parse_listing(page: str) -> dict:
             images.append(_json_str(u))
     seen = set()
     for u in images:
-        if u.startswith("http") and u not in seen:
-            seen.add(u)
+        # Same photo is listed at several sizes; key on the path without the query string.
+        key = u.split("?", 1)[0]
+        if u.startswith("http") and key not in seen:
+            seen.add(key)
             info["images"].append(u)
+    if len(info["images"]) > 1:  # generic crawler copy of the main photo
+        info["images"] = [u for u in info["images"] if "lookaside.fbsbx.com" not in u] or info["images"]
 
     # Price / location live in embedded JSON when Facebook includes it.
     m = re.search(r'"listing_price"\s*:\s*\{[^{}]*?"formatted_amount"\s*:\s*"([^"]+)"', page)
