@@ -116,6 +116,10 @@ def parse_lite_description(desc: str, title: Optional[str]) -> Optional[dict]:
         price = head[len(title) + 3 :].strip()
     elif " - " in head:
         price = head.rsplit(" - ", 1)[1].strip()
+    if price:
+        tail = re.search(r"((?:[A-Z]{0,3}[$€£¥]|[A-Z]{3}\s)\s?\d[\d,.]*|Free)$", price, re.IGNORECASE)
+        if tail:
+            price = tail.group(1)
     if price and not _looks_like_price(price):
         price = None
     return {
@@ -135,7 +139,42 @@ def _title_tag_details(tag: str, title: Optional[str]) -> tuple[Optional[str], O
     return (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else (None, parts[0].strip())
 
 
-def parse_listing(page: str) -> dict:
+def _listing_block(page: str, item_id: str) -> str:
+    """JSON text of this listing's own record (starts at its primary_mp_ent marker)."""
+    m = re.search(r'"primary_mp_ent"\s*:\s*\{[^{}]*?"id"\s*:\s*"%s"' % re.escape(item_id), page)
+    if not m:
+        return ""
+    end = page.find('"primary_mp_ent"', m.end())
+    return page[m.start() : min(end if end != -1 else len(page), m.start() + 60000)]
+
+
+def _json_price(block: str) -> Optional[str]:
+    m = re.search(r'"listing_price"\s*:\s*\{([^{}]*)\}', block)
+    if not m:
+        return None
+    obj = m.group(1)
+    m = re.search(r'"formatted_amount[A-Za-z_]*"\s*:\s*"([^"]+)"', obj)
+    if m and _looks_like_price(_json_str(m.group(1))):
+        return _json_str(m.group(1))
+    amount = re.search(r'"amount"\s*:\s*"(\d+(?:\.\d+)?)"', obj)
+    currency = re.search(r'"currency"\s*:\s*"([A-Z]{3})"', obj)
+    if amount and (not currency or currency.group(1) == "USD"):
+        value = float(amount.group(1))
+        return "Free" if value == 0 else f"${value:,.0f}" if value.is_integer() else f"${value:,.2f}"
+    return None
+
+
+def _pretty_price(price: Optional[str]) -> Optional[str]:
+    """'$20000' -> '$20,000' (only plain digit runs; leaves other formats alone)."""
+    if not price:
+        return price
+    m = re.fullmatch(r"([^\d\s,.]{0,3}\s?)(\d{4,})(\.\d+)?", price.strip())
+    if not m:
+        return price
+    return f"{m.group(1)}{int(m.group(2)):,}{m.group(3) or ''}"
+
+
+def parse_listing(page: str, item_id: Optional[str] = None) -> dict:
     """Extract listing info from Facebook HTML. Best effort; every field is optional."""
     parser = _MetaParser()
     parser.feed(page)
@@ -179,19 +218,17 @@ def parse_listing(page: str) -> dict:
     if len(info["images"]) > 1:  # generic crawler copy of the main photo
         info["images"] = [u for u in info["images"] if "lookaside.fbsbx.com" not in u] or info["images"]
 
-    # Price / location live in embedded JSON when Facebook includes it.
-    m = re.search(r'"listing_price"\s*:\s*\{[^{}]*?"formatted_amount"\s*:\s*"([^"]+)"', page)
-    if m:
-        info["price"] = _json_str(m.group(1))
-    m = re.search(
-        r'"(?:location_text|location)"\s*:\s*\{[^{}]*?"text"\s*:\s*"([^"]+)"', page
-    )
-    if m:
-        info["location"] = _json_str(m.group(1))
-    if not info["title"]:
-        m = re.search(r'"marketplace_listing_title"\s*:\s*"([^"]+)"', page)
+    # The www page also embeds the data of ~25 related listings, each with its own
+    # listing_price, so only trust JSON from the block belonging to this listing's id.
+    item_id = item_id or (ITEM_ID_RE.search(info["url"] or "") or [None, None])[1]
+    block = _listing_block(page, item_id) if item_id else ""
+    if block and not info["price"]:
+        info["price"] = _json_price(block)
+    if block and not info["title"]:
+        m = re.search(r'"marketplace_listing_title"\s*:\s*"([^"]+)"', block)
         if m:
             info["title"] = _json_str(m.group(1))
+    info["price"] = _pretty_price(info["price"])
     # <title> carries "<category> - <city>" on the www page even when nothing else does.
     if not (info["location"] and info["category"]):
         category, city = _title_tag_details(parser.title, info["title"])
@@ -280,7 +317,7 @@ class MarketplaceFetcher:
         if not got:
             return None
         final_url, page = got
-        info = parse_listing(page)
+        info = parse_listing(page, (ITEM_ID_RE.search(final_url) or [None, None])[1])
         canonical = info.get("url") or final_url
         # Share links must resolve to a marketplace item; skip other FB content.
         item = ITEM_ID_RE.search(final_url) or ITEM_ID_RE.search(canonical)
@@ -316,7 +353,9 @@ class MarketplaceFetcher:
 
         result = primary or lite
         if primary and lite:
-            for key in ("price", "location", "category"):
+            # Price from the listing's own JSON wins; the m. text is the fallback.
+            primary[1]["price"] = primary[1].get("price") or lite[1].get("price")
+            for key in ("location", "category"):
                 if lite[1].get(key):
                     primary[1][key] = lite[1][key]
             if not primary[1]["images"]:
