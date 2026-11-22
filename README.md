@@ -17,8 +17,6 @@ python bot.py
 
 (`export DISCORD_TOKEN=...` on Linux/macOS.) The token is only ever read from the environment.
 
-Tests (no Discord token or network needed): `python -m unittest`
-
 ## Docker / Unraid
 
 ```bash
