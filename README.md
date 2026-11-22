@@ -19,6 +19,15 @@ python bot.py
 
 Tests (no Discord token or network needed): `python -m unittest`
 
+## Docker / Unraid
+
+```bash
+docker build -t marketplace-embed-bot .
+docker run -d --name marketplace-embed-bot --restart unless-stopped -e DISCORD_TOKEN=your-token marketplace-embed-bot
+```
+
+On Unraid, open a terminal on the server, clone this repo, run the two commands above, or add a container in the Docker tab using the built image with a `DISCORD_TOKEN` variable and "Restart: unless-stopped". No ports need to be exposed.
+
 ## What it detects
 
 `facebook.com/marketplace/item/<id>` on any subdomain (`www`, `m`, `web`, `mbasic`…), location-scoped `marketplace/<city>/item/<id>` links, and `facebook.com/share/...` links (followed through redirects; ignored unless they land on a Marketplace item). Up to 3 unique listings per message; bots are ignored.
